@@ -9,52 +9,49 @@ class Calculadora extends StatefulWidget {
 }
 
 class _CalculadoraState extends State<Calculadora> {
-  String operacion = '';
-  String resultado = '0'; 
+  String operacion = "";
+  String resultado = "0";
   double? primerNumero;
   String? operadorActual;
   bool reiniciarPantalla = false;
+
+  // Helper para parsear texto a double (ignorando los símbolos de operación si están al final)
+  double _parsearPantalla(String valor) {
+    String limpio = valor.replaceAll(',', '.');
+    // Si termina en un operador visual, lo removemos para poder parsear el número limpio
+    if (limpio.endsWith(' +') ||
+        limpio.endsWith(' -') ||
+        limpio.endsWith(' ×') ||
+        limpio.endsWith(' ÷')) {
+      limpio = limpio.substring(0, limpio.length - 2);
+    }
+    return double.tryParse(limpio) ?? 0.0;
+  }
+
+  // Helper para formatear los números eliminando decimales innecesarios
+  String _formatearResultado(double numero) {
+    if (numero == numero.toInt()) {
+      return numero.toInt().toString();
+    }
+    String str = numero.toStringAsFixed(8);
+    while (str.contains('.') && (str.endsWith('0') || str.endsWith('.'))) {
+      str = str.substring(0, str.length - 1);
+    }
+    return str.replaceAll('.', ',');
+  }
+
+  // Obtener el símbolo visual que se concatenará en la pantalla
+  String _obtenerSimbolo(String? operador) {
+    if (operador == 'dividir') return '÷';
+    if (operador == 'X') return '×';
+    return operador ?? '';
+  }
 
   void actionBoton(String valor) {
     setState(() {
       switch (valor) {
         case '=':
-          if (primerNumero != null &&
-              operadorActual != null &&
-              resultado.isNotEmpty) {
-            double segundoNumero = double.parse(resultado.replaceAll(',', '.'));
-            double res = 0;
-
-            switch (operadorActual) {
-              case '+':
-                res = primerNumero! + segundoNumero;
-                break;
-              case '-':
-                res = primerNumero! - segundoNumero;
-                break;
-              case 'X':
-                res = primerNumero! * segundoNumero;
-                break;
-              case 'dividir':
-                res = segundoNumero != 0 ? primerNumero! / segundoNumero : 0;
-                break;
-            }
-
-            // Formatearr el resultado eliminando el .0 innecesario
-            String resString = res.toString();
-            if (resString.endsWith('.0')) {
-              resString = resString.substring(0, resString.length - 2);
-            }
-
-            operacion = '';
-            resultado = resString.replaceAll(
-              '.',
-              ',',
-            ); // Mostramos coma al usuario
-            primerNumero = null;
-            operadorActual = null;
-            reiniciarPantalla = true;
-          }
+          _ejecutarCalculo();
           break;
 
         case 'borrarTodo':
@@ -66,43 +63,47 @@ class _CalculadoraState extends State<Calculadora> {
           break;
 
         case 'borrarNum':
-          if (resultado.isNotEmpty && resultado != '0') {
-            resultado = resultado.substring(0, resultado.length - 1);
+          if (reiniciarPantalla) {
+            resultado = '0';
+          } else if (resultado != '0' && resultado.isNotEmpty) {
+            // Si borramos y termina en espacio (después de un operador), borramos el operador completo
+            if (resultado.endsWith(' ')) {
+              resultado = resultado.substring(0, resultado.length - 3);
+              operadorActual = null;
+              primerNumero = null;
+            } else {
+              resultado = resultado.substring(0, resultado.length - 1);
+            }
             if (resultado.isEmpty) resultado = '0';
           }
           break;
 
         case '%':
-          if (resultado != '0') {
-            double num = double.parse(resultado.replaceAll(',', '.'));
-            resultado = (num / 100).toString().replaceAll('.', ',');
-          }
+          double num = _parsearPantalla(resultado);
+          resultado = _formatearResultado(num / 100);
           break;
 
         case 'dividir':
         case 'X':
         case '-':
         case '+':
-          if (resultado.isNotEmpty) {
-            primerNumero = double.parse(resultado.replaceAll(',', '.'));
-            operadorActual = valor;
-
-            // Mapeo visual para el histórico superior
-            String simboloOperador = valor == 'dividir'
-                ? '÷'
-                : (valor == 'X' ? '×' : valor);
-            operacion = '$resultado $simboloOperador';
-            reiniciarPantalla = true;
-          }
+          _manejarOperador(valor);
           break;
 
         case ',':
-          if (!resultado.contains(',')) {
-            resultado += ',';
+          if (reiniciarPantalla) {
+            resultado = '0,';
+            reiniciarPantalla = false;
+          } else {
+            // Buscamos si la parte que estamos escribiendo actualmente ya tiene coma
+            List<String> partes = resultado.split(' ');
+            if (!partes.last.contains(',')) {
+              resultado += ',';
+            }
           }
           break;
 
-        case ' ': // Botón vacío estético
+        case ' ':
           break;
 
         default: // Manejo de Números
@@ -114,6 +115,66 @@ class _CalculadoraState extends State<Calculadora> {
           }
       }
     });
+  }
+
+  void _ejecutarCalculo() {
+    if (primerNumero == null || operadorActual == null) return;
+
+    // Obtenemos el segundo número aislando la última parte de la pantalla
+    List<String> partes = resultado.split(' ');
+    if (partes.length < 3) return; // Asegura que haya "Num1 Op Num2"
+
+    double segundoNumero = _parsearPantalla(partes.last);
+    double res = 0;
+
+    switch (operadorActual) {
+      case '+':
+        res = primerNumero! + segundoNumero;
+        break;
+      case '-':
+        res = primerNumero! - segundoNumero;
+        break;
+      case 'X':
+        res = primerNumero! * segundoNumero;
+        break;
+      case 'dividir':
+        res = segundoNumero != 0 ? primerNumero! / segundoNumero : 0;
+        break;
+    }
+
+    // EFECTO DESEADO: Pasamos exactamente lo que el usuario veía abajo hacia arriba sin el "="
+    operacion = resultado;
+
+    // Mostramos el resultado limpio abajo
+    resultado = _formatearResultado(res);
+
+    // Reset de control interno
+    primerNumero = null;
+    operadorActual = null;
+    reiniciarPantalla = true;
+  }
+
+  void _manejarOperador(String nuevoOperador) {
+    String simbolo = _obtenerSimbolo(nuevoOperador);
+
+    // Si ya hay un operador en pantalla (ej: "2 × 2") y presionan otro (ej: "+")
+    if (operadorActual != null && resultado.split(' ').length == 3) {
+      _ejecutarCalculo(); // Resuelve la operación anterior primero
+      primerNumero = _parsearPantalla(resultado);
+      resultado =
+          '$resultado $simbolo '; // Añade el nuevo operador al resultado acumulado
+    } else if (operadorActual != null && resultado.endsWith(' ')) {
+      // Si el usuario cambia de opinión de operador (ej: pulsó + y luego quiere ×)
+      resultado = resultado.substring(0, resultado.length - 3) + ' $simbolo ';
+    } else {
+      // Primer operador que se introduce
+      primerNumero = _parsearPantalla(resultado);
+      resultado = '$resultado $simbolo ';
+    }
+
+    operadorActual = nuevoOperador;
+    reiniciarPantalla =
+        false; // Falso para permitir seguir escribiendo al lado del operador
   }
 
   // Helper para asignar los colores originales de iOS
@@ -165,7 +226,6 @@ class _CalculadoraState extends State<Calculadora> {
                       ),
                     const SizedBox(height: 8),
                     FittedBox(
-                      // Evita que números gigantes rompan el diseño clonando el auto-shrink de iOS
                       fit: BoxFit.scaleDown,
                       child: Text(
                         resultado,
@@ -242,9 +302,7 @@ class _CalculadoraState extends State<Calculadora> {
     bool esAncho = false,
   }) {
     return Expanded(
-      flex: esAncho
-          ? 2
-          : 1, // Si es ancho toma 2 espacios en el Row (Clave para el "0")
+      flex: esAncho ? 2 : 1, // Si es ancho toma 2 espacios en el Row
       child: Padding(
         padding: const EdgeInsets.all(8.0),
         child: ElevatedButton(
@@ -259,11 +317,11 @@ class _CalculadoraState extends State<Calculadora> {
           ),
           onPressed: () => actionBoton(texto),
           child: icono != null
-              ? Icon(icono, size: 30)
+              ? Icon(icono, size: 36)
               : Text(
                   textoAlternativo ?? texto,
                   style: const TextStyle(
-                    fontSize: 28,
+                    fontSize: 26,
                     fontWeight: FontWeight.w400,
                   ),
                 ),
